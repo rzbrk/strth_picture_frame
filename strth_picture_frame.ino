@@ -19,7 +19,7 @@ NTPClient timeClient(ntpUDP, ntpserver, timeoffset);
 
 // Variable to hold time ticks for triggerung the display of time
 unsigned long tick;
-unsigned int clock_intrvl = 1; // minutes
+unsigned int clock_intrvl = 5; // minutes
 
 const String numbers_min[60] = {"null", "eins", "zwei", "drei", "vier", "fuenf", "sechs",
   "sieben", "acht", "neun", "zehn", "elf", "zwoelf", "dreizehn", "vierzehn", "fuenfzehn",
