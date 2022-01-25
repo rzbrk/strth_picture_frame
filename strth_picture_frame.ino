@@ -387,22 +387,6 @@ String is_message(String currentLine) {
   return currentLine;
 }
 
-int get_ntptime(char element) {
-  // Initialize default return value
-  int retval = 0;
-
-  // See if we have to return, hours, minutes or seconds
-  timeClient.update();
-  if('h' == element) {
-    timeClient.getHours();
-  } else if('m' == element) {
-    timeClient.getMinutes();
-  } else if('s' == element) {
-    timeClient.getSeconds();
-  }
-  return retval;
-}
-
 void display_msg(String msg) {
   // Convert to upper case
   msg.toUpperCase();
