@@ -49,6 +49,13 @@ const String numbers_hrs[25] = {"null", "ein", "zwei", "drei", "vier", "fuenf", 
 // How many NeoPixels are attached to the Arduino?
 #define NUMPIXELS 27
 
+// Define brightness levels for the LEDs (0...254)
+// LED_BRIGHTN_STD is standard/day time brightness
+// LED_BRIGHTN_RED is reduced brightness during night time (22:00 ... 06:00 local time)
+#define LED_BRIGHTN_STD 254
+#define LED_BRIGHTN_RED 10
+int red_brightn_night = 1;
+
 // Create instance for the NeoPixel strip
 Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
 
@@ -98,6 +105,9 @@ const uint32_t colors[] = {
 void setup() {
   
   Serial.begin(9600);      // initialize serial communication
+
+  // Set the initial brightness of the LEDs
+  pixels.setBrightness(LED_BRIGHTN_STD);
 
   // check for the WiFi module:
   if (WiFi.status() == WL_NO_MODULE) {
@@ -237,7 +247,18 @@ void loop() {
               client.print(tz);
               client.println("h</option>");
             }
-            client.println("</select></td></tr></table>");
+            client.println("</select></td></tr>");
+            client.println("<tr><td>Reduce LED brightness at night:</td><td><input type=\"radio\" name=\"night\" value=\"1\"");
+            if (1 == red_brightn_night) {
+              client.println("checked ");
+            }
+            client.println("><label for=\"night\">Yes</label>");
+            client.println(", <input type=\"radio\" name=\"night\" value=\"0\"");
+            if (0 == red_brightn_night) {
+              client.println("checked ");
+            }
+            client.println("><label for=\"night\">No</label>");
+            client.println("</td></tr></table>");
             client.println("<input type=\"submit\" value=\"Update settings\"></form></p>");
             client.print("<p>Connected to: ");
             client.print(WiFi.SSID());
@@ -277,12 +298,14 @@ String is_settings(String currentLine) {
   int intrvl_start = currentLine.indexOf("?intrvl=");
   int ntpsrv_start = currentLine.indexOf("&ntpsrv=", intrvl_start + 1);
   int tz_start     = currentLine.indexOf("&tz=", ntpsrv_start + 1);
+  int night_start  = currentLine.indexOf("&night=", tz_start + 1);
   int msg_end      = currentLine.indexOf(" ", tz_start + 1);
   
   if (currentLine.endsWith("HTTP/1.1")
     && -1 != intrvl_start
     && -1 != ntpsrv_start
-    && -1 != tz_start) {
+    && -1 != tz_start
+    && -1 != night_start) {
     Serial.println("Change settings");
     clock_intrvl = currentLine.substring(intrvl_start + 8, ntpsrv_start).toInt();
     Serial.print("Clock interval (minutes): ");
@@ -291,13 +314,16 @@ String is_settings(String currentLine) {
     ntpserver_str.toCharArray(ntpserver, ntpserver_str.length());
     Serial.print("NTP server: ");
     Serial.println(ntpserver);
-    timeoffset = currentLine.substring(tz_start + 4, msg_end).toInt();
+    timeoffset = currentLine.substring(tz_start + 4, night_start + 1).toInt();
     timeoffset *= 3600;
     Serial.print("Time offset (seconds): ");
     Serial.println(timeoffset);
     // Apply new time offset
     timeClient.setTimeOffset(timeoffset);
-
+    red_brightn_night = currentLine.substring(night_start + 7, msg_end).toInt();
+    Serial.print("Reduce led brightness at night: ");
+    Serial.println(red_brightn_night);
+    
     // Clear currentLine to avoid that condition is met two times for the same message
     currentLine = "";
   }
@@ -380,6 +406,13 @@ int get_ntptime(char element) {
 void display_msg(String msg) {
   // Convert to upper case
   msg.toUpperCase();
+
+  // Reduction of led brightness between 22:00 and 06:00 local time
+  if(1 == red_brightn_night && (timeClient.getHours() > 21 || timeClient.getHours() < 6) ) {
+    pixels.setBrightness(LED_BRIGHTN_RED);
+  } else {
+    pixels.setBrightness(LED_BRIGHTN_STD);
+  }
   
   for(int i=0; i < msg.length(); i++) {
     int ascii = msg[i]; // Get ASCII code of character
