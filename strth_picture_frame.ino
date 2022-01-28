@@ -102,6 +102,9 @@ const uint32_t colors[] = {
 // Button to show time
 #define BUTTON 4 // GPIO16 (D4)
 
+#include "scan_request.h"
+#include "sanitize_msg.h"
+
 void setup() {
   
   Serial.begin(9600);      // initialize serial communication
@@ -169,6 +172,15 @@ void setup() {
 }
 
 void loop() {
+  // Define some variables
+  String currentLine = "";                  // make a String to hold incoming data from the client
+  char c;                                   // read the request from the client byte-by-byte
+  String retval = "";                       // Variable to temporarily hold the return value from
+                                            // the function scan_request().
+  String raw_msg;                           // Raw message from the HTTP request
+  String clean_msg;                         // Message string cleaned to the characters that can be
+                                            // displayed on the picture frame.
+  
   // Check if it is time to show the time or the key is pressed
   unsigned long clock_intrvl_millis = 60000 * (unsigned long) clock_intrvl;
   if(((millis() - tick) > clock_intrvl_millis) || HIGH == digitalRead(BUTTON)) {
@@ -187,10 +199,9 @@ void loop() {
 
   if (client) {                             // if you get a client,
     Serial.println("new client");           // print a message out the serial port
-    String currentLine = "";                // make a String to hold incoming data from the client
     while (client.connected()) {            // loop while the client's connected
       if (client.available()) {             // if there's bytes to read from the client,
-        char c = client.read();             // read a byte, then
+        c = client.read();             // read a byte, then
         //Serial.write(c);                    // print it out the serial monitor
         if (c == '\n') {                    // if the byte is a newline character
 
@@ -282,109 +293,60 @@ void loop() {
           currentLine += c;      // add it to the end of the currentLine
         }
 
-        // Check for message (?msg=<raw_msg>) in complete HTTP request
-        currentLine = is_message(currentLine);
-        // Check if settings changed (?intrvl=<intrvl>?ntpsrv=<ntpsrv>?tz=<tz>)
-        currentLine = is_settings(currentLine);
+        // If the request ist complete, i.e. ends with "HTTP/1.1" then scan the request
+        if (currentLine.endsWith("HTTP/1.1")) {
+          // Time interval for displaying the time on the picture frame in minutes
+          retval = scan_request(currentLine, "intrvl");
+          if (retval != "") {
+            clock_intrvl = retval.toInt();
+            retval = "";
+          }
+
+          // NTP server to receive time information from
+          retval = scan_request(currentLine, "ntpsrv");
+          if (retval != "") {
+            retval.toCharArray(ntpserver, retval.length() + 1);
+            retval = "";
+          }
+
+          // Local time zone offset wrt. UTC in hours
+          retval = scan_request(currentLine, "tz");
+          if (retval != "") {
+            timeoffset = retval.toInt();
+            timeoffset *= 3600; // Convert to seconds
+            // Apply new time offset
+            timeClient.setTimeOffset(timeoffset);
+            retval = "";
+          }
+
+          // Setting to reduce LED brightness during night time (22:00 - 06:00)
+          retval = scan_request(currentLine, "night");
+          if (retval != "") {
+            red_brightn_night = retval.toInt();
+            retval = "";
+          }
+
+          // See if we have a message to display and retrieve the raw message
+          raw_msg = scan_request(currentLine, "msg");
+          if (raw_msg != "") {
+            // Clean the message
+            clean_msg = sanitize_msg(raw_msg);
+            // Display the message on the picture frame
+            display_msg(clean_msg);
+          }
+
+          // Now, the HTTP request is successfully processed, therefore we can
+          // clear it
+          currentLine = "";
+
+        }
       }
     }
+    
     // close the connection:
     client.stop();
     Serial.println("client disconnected");
   }
-}
-
-String is_settings(String currentLine) {
-  int intrvl_start = currentLine.indexOf("?intrvl=");
-  int ntpsrv_start = currentLine.indexOf("&ntpsrv=", intrvl_start + 1);
-  int tz_start     = currentLine.indexOf("&tz=", ntpsrv_start + 1);
-  int night_start  = currentLine.indexOf("&night=", tz_start + 1);
-  int msg_end      = currentLine.indexOf(" ", tz_start + 1);
-  
-  if (currentLine.endsWith("HTTP/1.1")
-    && -1 != intrvl_start
-    && -1 != ntpsrv_start
-    && -1 != tz_start
-    && -1 != night_start) {
-    Serial.println("Change settings");
-    clock_intrvl = currentLine.substring(intrvl_start + 8, ntpsrv_start).toInt();
-    Serial.print("Clock interval (minutes): ");
-    Serial.println(clock_intrvl);
-    String ntpserver_str = currentLine.substring(ntpsrv_start + 8, tz_start + 1);
-    ntpserver_str.toCharArray(ntpserver, ntpserver_str.length());
-    Serial.print("NTP server: ");
-    Serial.println(ntpserver);
-    timeoffset = currentLine.substring(tz_start + 4, night_start + 1).toInt();
-    timeoffset *= 3600;
-    Serial.print("Time offset (seconds): ");
-    Serial.println(timeoffset);
-    // Apply new time offset
-    timeClient.setTimeOffset(timeoffset);
-    red_brightn_night = currentLine.substring(night_start + 7, msg_end).toInt();
-    Serial.print("Reduce led brightness at night: ");
-    Serial.println(red_brightn_night);
-    
-    // Clear currentLine to avoid that condition is met two times for the same message
-    currentLine = "";
-  }
-  return currentLine;
-}
-
-String is_message(String currentLine) {
-  int msg_start = currentLine.indexOf("GET?msg=");
-  int msg_end   = currentLine.indexOf(" ", msg_start + 1);
-  if(currentLine.endsWith("HTTP/1.1") && -1 != msg_start && -1 != msg_end) {
-    // Substract the message content
-    String raw_msg = currentLine.substring(msg_start + 8, msg_end);
-    raw_msg.toUpperCase();
-    Serial.print("Raw message: ");
-    Serial.println(raw_msg);
-
-    // Clean the message string. German umlauts and szlig will be
-    // replaced by AE#, OE#, UE# and SS#. All other non-ASCII
-    // character codes will be replaced by ###, which will be
-    // eventually ignored by the function display_msg().
-    String clean_msg = raw_msg;
-    int old_pos = -1;
-    int pos = clean_msg.indexOf("%", old_pos + 1);
-    while(-1 != pos) {
-      String substr = clean_msg.substring(pos, pos + 3);
-      if(substr == "%E4" || substr == "%C4") {
-        clean_msg.setCharAt(pos,     'A');
-        clean_msg.setCharAt(pos + 1, 'E');
-        clean_msg.setCharAt(pos + 2, '#');
-      } else if(substr == "%F6" || substr == "%D6") {
-        clean_msg.setCharAt(pos,     'O');
-        clean_msg.setCharAt(pos + 1, 'E');
-        clean_msg.setCharAt(pos + 2, '#');
-      } else if(substr == "%FC" || substr == "%DC") {
-        clean_msg.setCharAt(pos,     'U');
-        clean_msg.setCharAt(pos + 1, 'E');
-        clean_msg.setCharAt(pos + 2, '#');
-      } else if(substr == "%DF") {
-        clean_msg.setCharAt(pos,     'S');
-        clean_msg.setCharAt(pos + 1, 'S');
-        clean_msg.setCharAt(pos + 2, '#');
-      } else {
-        for(int i = pos; i < pos + 3; i++) {
-          clean_msg.setCharAt(i, '#');
-        }        
-      }
-      
-      old_pos = pos;
-      pos = clean_msg.indexOf("%", old_pos + 1);
-    }
-
-    Serial.print("Clean message: ");
-    Serial.println(clean_msg);
-
-    display_msg(clean_msg);
-    
-    // Clear currentLine to avoid that condition is met two times for the same message
-    currentLine = "";
-  }
-
-  return currentLine;
 }
 
 void display_msg(String msg) {
