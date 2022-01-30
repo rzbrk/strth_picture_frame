@@ -104,10 +104,13 @@ const uint32_t colors[] = {
 
 #include "scan_request.h"
 #include "sanitize_msg.h"
+#include "int_memory.h"
 
 void setup() {
   
   Serial.begin(9600);      // initialize serial communication
+
+  Serial.println("Stranger Things Picture Frame\n");
 
   // Set the initial brightness of the LEDs
   pixels.setBrightness(LED_BRIGHTN_STD);
@@ -117,11 +120,15 @@ void setup() {
     Serial.println("Communication with WiFi module failed!");
     // don't continue
     while (true);
+  } else {
+    Serial.println("WiFi module detected.");
   }
 
   String fv = WiFi.firmwareVersion();
   if (fv < WIFI_FIRMWARE_LATEST_VERSION) {
     Serial.println("Please upgrade the firmware");
+  } else {
+    Serial.println("WiFi firmware version check passed.");
   }
 
   // check for the presence of the shield:
@@ -129,8 +136,27 @@ void setup() {
     Serial.println("WiFi shield not present");
     // don't continue:
     while (true);
+  } else {
+    Serial.println("WiFi shield detected.");
   }
 
+// Restore settings from the NINA internal memory partition if present
+//  if (file_exists("clock_intrvl")) {
+//    clock_intrvl = file_read("clock_intrvl").toInt();
+//    Serial.print("Restored setting for clock_intrvl from int. memory: ");
+//    Serial.println(clock_intrvl);
+//  }
+//  if (file_exists("ntpserver")) {
+//    String ntpserver_str = file_read("ntpserver");
+//    ntpserver_str.toCharArray(ntpserver, ntpserver_str.length() + 1);
+//  }
+//  if (file_exists("timeoffset")) {
+//    timeoffset = file_read("timeoffset").toInt();
+//  }
+//  if (file_exists("red_brightn_night")) {
+//    red_brightn_night = file_read("red_brightn_night").toInt();
+//  }
+  
   // attempt to connect to WiFi network:
   WiFi.setHostname(hostname);               // Set hostname
   while (status != WL_CONNECTED) {
@@ -299,6 +325,8 @@ void loop() {
           retval = scan_request(currentLine, "intrvl");
           if (retval != "") {
             clock_intrvl = retval.toInt();
+            // Safe setting to NINA internal memory
+            //file_write("clock_intrvl", retval);
             retval = "";
           }
 
@@ -306,6 +334,8 @@ void loop() {
           retval = scan_request(currentLine, "ntpsrv");
           if (retval != "") {
             retval.toCharArray(ntpserver, retval.length() + 1);
+            // Safe setting to NINA internal memory
+            //file_write("ntpserver", retval);
             retval = "";
           }
 
@@ -316,6 +346,8 @@ void loop() {
             timeoffset *= 3600; // Convert to seconds
             // Apply new time offset
             timeClient.setTimeOffset(timeoffset);
+            // Safe setting to NINA internal memory
+            //file_write("timeoffset", String(timeoffset));
             retval = "";
           }
 
@@ -323,6 +355,8 @@ void loop() {
           retval = scan_request(currentLine, "night");
           if (retval != "") {
             red_brightn_night = retval.toInt();
+            // Safe setting to NINA internal memory
+            //file_write("red_brightn_night", retval);
             retval = "";
           }
 
